@@ -76,7 +76,7 @@ class OLPClient:
         }
         signature_params = oauth_params.items() + body_params.items()
         signature_params.sort(key=(lambda x: x[0]))
-        signature_base_string = "POST&" + urllib.quote(TOKEN_URL, safe='') + "&" + urllib.quote("&".join(urllib.quote(x[0]) + "=" + urllib.quote(x[1]) for x in signature_params))
+        signature_base_string = "POST&" + urllib.quote(OLPClient.TOKEN_URL, safe='') + "&" + urllib.quote("&".join(urllib.quote(x[0]) + "=" + urllib.quote(x[1]) for x in signature_params))
         print "SBS: " + signature_base_string
         signature = base64.b64encode(hmac.new(config["client_secret"] + "&", signature_base_string, hashlib.sha256).digest())
         print "Signature Base64: " + signature
@@ -96,7 +96,7 @@ class OLPClient:
 
         # Now that your request is signed, you can initiate an API call
         print "Sending request"
-        res = requests.post(TOKEN_URL, data="grant_type=client_credentials", headers=headers)
+        res = requests.post(OLPClient.TOKEN_URL, data="grant_type=client_credentials", headers=headers)
 
         pp.pprint(res)
         pp.pprint(res.json())
