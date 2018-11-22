@@ -1,0 +1,15 @@
+PythonHereOSIngestion
+certifi==2018.10.15
+chardet==3.0.4
+enum34==1.1.6
+futures==3.2.0
+grpcio==1.16.1
+grpcio-tools==1.16.1
+idna==2.7
+oauthlib==2.1.0
+pkg-resources==0.0.0
+protobuf==3.6.1
+PyYAML==3.13
+requests==2.20.1
+six==1.11.0
+urllib3==1.24.1
