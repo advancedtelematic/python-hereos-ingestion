@@ -13,6 +13,16 @@ import base64
 import json
 import yaml
 import io
+import sys
+import getopt
+
+from concurrent import futures
+import grpc
+
+import ingestion_pb2
+import ingestion_pb2_grpc 
+
+_ONE_DAY_IN_SECONDS = 60 * 60 * 24
 
 class API:
 
@@ -43,21 +53,25 @@ class Catalog:
                 self.apis.append(API(service))
         return self.apis
 
+    def get_api(self, name):
+        return [ a for a in self.get_apis() if a.name == name ][0]
+
 class OLPClient:
 
     TOKEN_URL = "https://account.api.here.com/oauth2/token"
     API_SERVICE = "https://api-lookup.data.api.platform.here.com"
 
-    def __init__(self):
+    def __init__(self, config_file):
         self.apis = None
         self.access_token = None
         self.catalogs = None
+        self.config_file = config_file
 
     def load_config(self):
-        return yaml.load(io.open("config.yaml", "r"))
+        return yaml.load(io.open(self.config_file, "r"))
 
     def save_config(self, config):
-        with io.open("config.yaml", "w") as yaml_file:
+        with io.open(self.config_file, "w") as yaml_file:
             yaml_file.write(unicode(yaml.dump(config, default_flow_style=False)))
 
     def generate_access_token(self):
@@ -118,8 +132,18 @@ class OLPClient:
         result.update({ "Authorization": "Bearer " + self.get_access_token(), "Cache-Control": "no-cache" })
         return result
 
+    def set_content_type_json(self, headers):
+        result = headers.copy()
+        result.update({ "Content-Type": "application/json" })
+        return result
+
     def api_get(self, url, headers=dict(), **kwargs):
         return requests.get(url, headers=self.add_bearer_token(headers), **kwargs)
+
+    def api_post(self, url, message, headers=dict(), **kwargs):
+        return requests.post(url, data=json.dumps(message),
+                             headers=self.set_content_type_json(self.add_bearer_token(headers)),
+                             **kwargs)
 
     def get_config_url(self):
         return self.get_api("config").base_url
@@ -142,10 +166,83 @@ class OLPClient:
                 self.catalogs.append(Catalog(self, catalog))
         return self.catalogs
 
-pp = pprint.PrettyPrinter(indent=4)
-olp = OLPClient()
-print "Catalogs:"
-for catalog in olp.get_catalogs():
-    print catalog
-for api in olp.get_catalogs()[0].get_apis():
-    print api
+    def get_catalog_by_hrn(self, catalog_hrn):
+        return [ c for c in self.get_catalogs() if c.hrn == catalog_hrn ][0]
+
+    def record_measurement(self, catalog_hrn, layer_id, measurement):
+        catalog = self.get_catalog_by_hrn(catalog_hrn)
+        ingest_url = catalog.get_api("ingest").base_url
+        print "Posting: " + json.dumps(measurement)
+        self.api_post(ingest_url + "/layer/" + urllib.quote(layer_id), measurement)
+
+class IngestionServicer(ingestion_pb2_grpc.IngestionServicer):
+
+    def __init__(self, config_file):
+        self.olpclient = OLPClient(config_file)
+
+    def GetCatalogs(self, request, context):
+        for catalog in self.olpclient.get_catalogs():
+            yield ingestion_pb2.Catalog(hrn=catalog.hrn)
+
+    def RecordMeasurement(self, measurement, context):
+        self.olpclient.record_measurement(measurement.catalogHrn, 
+                                          measurement.layerId, 
+                                          { "timestamp": int(time.time()),
+                                            "measurement": measurement.value })
+        return ingestion_pb2.Empty()
+
+def test(config_file):
+    pp = pprint.PrettyPrinter(indent=4)
+    olp = OLPClient(config_file)
+    print "Catalogs:"
+    for catalog in olp.get_catalogs():
+        print catalog
+    for api in olp.get_catalogs()[0].get_apis():
+        print api
+
+def serve(config_file):
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    ingestion_pb2_grpc.add_IngestionServicer_to_server(
+        IngestionServicer(config_file), server)
+    server.add_insecure_port('[::]:50052')
+    server.start()
+    print "Started server on port 50052"
+    try:
+        while True:
+            time.sleep(_ONE_DAY_IN_SECONDS)
+    except KeyboardInterrupt:
+        server.stop(0)
+
+def usage():
+    print "ingestion [-c [CONFIG_FILE]] [-d]"
+    print ""
+    print "Runs the ingestion server"
+    print "  -c CONFIG_FILE - the location of the key / secret for posting"
+    print "  -d - run as a server"
+
+if __name__ == '__main__':
+    try:
+        optlist, args = getopt.getopt(sys.argv[1:], "c:dh")
+    except getopt.GetoptError as err:
+        print str(err)
+        usage()
+        sys.exit(2)
+
+    config_file = "config.yaml"
+    daemon = False
+    
+    for o, a in optlist:
+        if o == "-c":
+            config_file = a
+        elif o == "-h":
+            usage()
+            sys.exit(2)
+        elif o == "-d":
+            daemon = True
+        else:
+            assert False, "Unhandled option"  
+
+    if daemon:
+        serve(config_file)
+    else:
+        test(config_file)

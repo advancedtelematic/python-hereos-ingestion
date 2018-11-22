@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.here.os.services.ingestion";
+option java_outer_classname = "IngestionServiceProto";
+option objc_class_prefix = "ING";
+
+package ingestion;
+
+service Ingestion {
+
+  rpc GetCatalogs(Empty) returns (stream Catalog) {}
+  rpc RecordMeasurement(Measurement) returns (Empty) {}
+
+}
+
+message Empty {
+}
+
+message Measurement {
+
+  string catalogHrn = 1;
+  string layerId = 2;
+  int32 value = 3;
+
+}
+
+message Catalog {
+
+  string hrn = 1;
+
+}
