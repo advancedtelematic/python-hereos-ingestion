@@ -11,9 +11,11 @@ import string
 import base64
 import json
 import io
+import os
 import sys
 import getopt
 import logging
+import zipfile
 
 # modules
 import yaml
@@ -234,11 +236,12 @@ def serve(config_file):
         server.stop(0)
 
 def usage():
-    print "ingestion [-c [CONFIG_FILE]] [-d]"
+    print "ingestion [-c [CONFIG_FILE]] [-d] [-z [CREDENTIALS_ZIP]]"
     print ""
     print "Runs the ingestion server"
     print "  -c CONFIG_FILE - the location of the key / secret for posting"
     print "  -d - run as a server"
+    print "  -z - provide location of a credentails.zip file"
 
 def configure_logging():
     root = logging.getLogger()
@@ -249,10 +252,15 @@ def configure_logging():
     handler.setFormatter(formatter)
     root.addHandler(handler)
  
+def extract_config(credentials_zip, config_file):
+    with zipfile.ZipFile(credentials_zip) as myzip:
+        with open(config_file, "w") as config:
+            config.write(myzip.read("credentials-olp.yaml"))
+
 def main():
     configure_logging()
     try:
-        optlist, _ = getopt.getopt(sys.argv[1:], "c:dh")
+        optlist, _ = getopt.getopt(sys.argv[1:], "c:dhz:")
     except getopt.GetoptError as err:
         print str(err)
         usage()
@@ -260,6 +268,7 @@ def main():
 
     config_file = "config.yaml"
     daemon = False
+    credentials_zip = None
 
     for opt, arg in optlist:
         if opt == "-c":
@@ -269,8 +278,13 @@ def main():
             sys.exit(2)
         elif opt == "-d":
             daemon = True
+        elif opt == "-z":
+            credentials_zip = arg
         else:
             assert False, "Unhandled option"
+
+    if (credentials_zip is not None) and (not os.path.exists(config_file)):
+        extract_config(credentials_zip, config_file)
 
     if daemon:
         serve(config_file)
